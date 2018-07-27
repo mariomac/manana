@@ -1,27 +1,35 @@
 package manana
 
+import (
+	"fmt"
+	"time"
+)
+
 // futureImpl here should be probably named "Promise", since has a completable status
 
 type Future interface {
-	OnSuccess(successReceiver func(_ interface{}))
-	OnError(errorReceiver func(_ error))
+	OnSuccess(callback func(_ interface{}))
+	OnError(callback func(_ error))
 	Get() (interface{}, error)
+	Eventually(timeout time.Duration) (interface{}, error)
 }
 
-type CompletableFuture interface {
+type Promise interface {
 	Future
 	Success(value interface{})
 	Error(err error)
 }
 
 type futureImpl struct {
-	success    chan interface{}
-	error      chan error
-	successCBs []func(_ interface{})
-	errorCBs   []func(_ error)
+	success      chan interface{}
+	error        chan error
+	successCBs   []func(_ interface{})
+	errorCBs     []func(_ error)
+	completedVal interface{}
+	completedErr error
 }
 
-func New() CompletableFuture {
+func New() Promise {
 	return &futureImpl{
 		success:    make(chan interface{}),
 		error:      make(chan error),
@@ -32,28 +40,34 @@ func New() CompletableFuture {
 
 // OnSuccess invokes the statusReceiver function as soon as the future is successfully completed
 func (f *futureImpl) OnSuccess(callback func(_ interface{})) {
+	if f.completedVal != nil {
+		go callback(f.completedVal)
+		return
+	}
 	startListening := len(f.successCBs) == 0
 	f.successCBs = append(f.successCBs, callback)
 	if startListening {
 		go func() {
-			status := <-f.success // Wait for success
-			f.close()
+			f.completedVal = <-f.success // Wait for success
 			for _, rCallback := range f.successCBs {
-				go rCallback(status)
+				go rCallback(f.completedVal)
 			}
 		}()
 	}
 }
 
 func (f *futureImpl) OnError(callback func(_ error)) {
-	startListening := len(f.successCBs) == 0
+	if f.completedErr != nil {
+		go callback(f.completedErr)
+		return
+	}
+	startListening := len(f.errorCBs) == 0
 	f.errorCBs = append(f.errorCBs, callback)
 	if startListening {
 		go func() {
-			err := <-f.error // Wait for success
-			f.close()
+			f.completedErr = <-f.error // Wait for success
 			for _, rCallback := range f.errorCBs {
-				go rCallback(err)
+				go rCallback(f.completedErr)
 			}
 		}()
 	}
@@ -61,12 +75,18 @@ func (f *futureImpl) OnError(callback func(_ error)) {
 
 // Todo: return error if future has been completed
 func (f *futureImpl) Success(value interface{}) {
-	f.success <- value
+	go func() {
+		f.success <- value
+		f.close()
+	}()
 }
 
 // Todo: return error if future has been completed
 func (f *futureImpl) Error(err error) {
-	f.error <- err
+	go func() {
+		f.error <- err
+		f.close()
+	}()
 }
 
 // Todo: oncomplete (interface{}, error)
@@ -75,11 +95,30 @@ func (f *futureImpl) Error(err error) {
 func (f *futureImpl) Get() (interface{}, error) {
 	select {
 	case successVal := <-f.success:
-		f.close()
 		return successVal, nil
 	case err := <-f.error:
-		f.close()
 		return nil, err
+	}
+}
+
+func (f *futureImpl) Eventually(timeout time.Duration) (interface{}, error) {
+	finishCh := make(chan interface{})
+	errCh := make(chan error)
+	defer close(finishCh)
+	defer close(errCh)
+	f.OnSuccess(func(val interface{}) {
+		finishCh <- val
+	})
+	f.OnError(func(err error) {
+		errCh <- err
+	})
+	select {
+	case val := <-finishCh:
+		return val, nil
+	case err := <-errCh:
+		return nil, err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("future did not completed after %v", timeout)
 	}
 }
 

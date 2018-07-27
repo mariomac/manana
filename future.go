@@ -15,57 +15,63 @@ type CompletableFuture interface {
 }
 
 type futureImpl struct {
-	success         chan interface{}
-	error           chan error
-	successReceiver func(_ interface{})
-	errorReceiver   func(_ error)
+	success    chan interface{}
+	error      chan error
+	successCBs []func(_ interface{})
+	errorCBs   []func(_ error)
 }
 
-func NewFuture() CompletableFuture {
+func New() CompletableFuture {
 	return &futureImpl{
-		success: make(chan interface{}),
-		error:   make(chan error),
+		success:    make(chan interface{}),
+		error:      make(chan error),
+		successCBs: make([]func(_ interface{}), 0),
+		errorCBs:   make([]func(_ error), 0),
 	}
 }
 
 // OnSuccess invokes the statusReceiver function as soon as the future is successfully completed
-func (f *futureImpl) OnSuccess(successReceiver func(_ interface{})) {
-	startListening := f.successReceiver == nil
-	f.successReceiver = successReceiver
+func (f *futureImpl) OnSuccess(callback func(_ interface{})) {
+	startListening := len(f.successCBs) == 0
+	f.successCBs = append(f.successCBs, callback)
 	if startListening {
 		go func() {
 			status := <-f.success // Wait for success
 			f.close()
-			if f.successReceiver != nil {
-				f.successReceiver(status) // Invoke status receiver with the result
+			for _, rCallback := range f.successCBs {
+				go rCallback(status)
 			}
 		}()
 	}
 }
 
-func (f *futureImpl) OnError(errorReceiver func(_ error)) {
-	startListening := f.successReceiver == nil
-	f.errorReceiver = errorReceiver
+func (f *futureImpl) OnError(callback func(_ error)) {
+	startListening := len(f.successCBs) == 0
+	f.errorCBs = append(f.errorCBs, callback)
 	if startListening {
 		go func() {
 			err := <-f.error // Wait for success
 			f.close()
-			if f.errorReceiver != nil {
-				f.errorReceiver(err) // Invoke status receiver with the result
+			for _, rCallback := range f.errorCBs {
+				go rCallback(err)
 			}
 		}()
 	}
 }
 
+// Todo: return error if future has been completed
 func (f *futureImpl) Success(value interface{}) {
 	f.success <- value
 }
 
+// Todo: return error if future has been completed
 func (f *futureImpl) Error(err error) {
 	f.error <- err
 }
 
-// Get invalidates OnSuccess and OnError
+// Todo: oncomplete (interface{}, error)
+
+// Get should coexist and close onsuccess
 func (f *futureImpl) Get() (interface{}, error) {
 	select {
 	case successVal := <-f.success:

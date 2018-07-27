@@ -49,7 +49,7 @@ func TestFuture_Success(t *testing.T) {
 	})
 
 	// When the future succeeds
-	f.Success("suceed!")
+	assert.NoError(t, f.Success("suceed!"))
 
 	// Both subscribers eventually receive the success
 	assert.NoError(t, eventually(2*time.Second, func() {
@@ -74,7 +74,7 @@ func TestFuture_Success_OneBeforeOneAfterSubscribing(t *testing.T) {
 	})
 
 	// And the future succeeds
-	f.Success("suceed!")
+	assert.NoError(t, f.Success("suceed!"))
 
 	// But another "onsuccess" is subscribed after the future finishes
 	f.OnSuccess(func(obj interface{}) {
@@ -97,7 +97,7 @@ func TestFuture_Success_AfterSubscribing(t *testing.T) {
 	f := New()
 
 	// When the future succeeds
-	f.Success("suceed!")
+	assert.NoError(t, f.Success("suceed!"))
 
 	// And the callbacks have been subscribed after succeeding
 	var first, second string
@@ -208,7 +208,42 @@ func TestFuture_Error_AfterSubscribing(t *testing.T) {
 	}))
 }
 
-// Test if trying to complete twice
+func TestFuture_Success_Twice(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		// Given a future
+		f := New()
+
+		var val string
+		f.OnSuccess(func(obj interface{}) {
+			val = obj.(string)
+			wg.Done()
+		})
+
+		// When the future succeeds
+		assert.NoError(t, f.Success("suceed!"))
+
+		// And try to succeed a second time
+		assert.Error(t, f.Success("another succeed!"))
+
+		// The subscriber eventually receives the success
+		wg.Wait()
+		assert.Equal(t, "suceed!", val)
+
+		// And the process works for future things
+		wg.Add(1)
+		var val2 string
+		f.OnSuccess(func(obj interface{}) {
+			val2 = obj.(string)
+			wg.Done()
+		})
+		wg.Wait()
+		assert.Equal(t, "suceed!", val2)
+
+	}))
+}
 
 // Test get with success value
 // Test that onsuccess still works

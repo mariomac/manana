@@ -13,6 +13,7 @@ var errorCompleted = errors.New("this promise has been already completed")
 type Future interface {
 	OnSuccess(callback func(_ interface{}))
 	OnError(callback func(_ error))
+	IsCompleted() bool
 	Get() (interface{}, error)
 	Eventually(timeout time.Duration) (interface{}, error)
 }
@@ -24,22 +25,19 @@ type Promise interface {
 }
 
 type promiseImpl struct {
-	success    chan interface{}
-	error      chan interface{}
+	completed  chan interface{}
 	successCBs []func(_ interface{})
 	errorCBs   []func(_ error)
 	value      interface{}
 	err        error
 }
 
-func New() Promise {
+func NewPromise() Promise {
 	p := &promiseImpl{
-		success:    make(chan interface{}),
-		error:      make(chan interface{}),
+		completed:  make(chan interface{}),
 		successCBs: make([]func(_ interface{}), 0),
 		errorCBs:   make([]func(_ error), 0),
 	}
-	p.initialize()
 	return p
 }
 
@@ -60,46 +58,27 @@ func (f *promiseImpl) OnError(callback func(_ error)) {
 	f.errorCBs = append(f.errorCBs, callback)
 }
 
-func (f *promiseImpl) initialize() {
-	go func() {
-		select {
-		case <-f.success: // Wait for success
-			for _, rCallback := range f.successCBs {
-				go rCallback(f.value)
-			}
-		default:
-			// Success closed
-		}
-	}()
-	go func() {
-		select {
-		case <-f.error: // Wait for error
-			for _, rCallback := range f.errorCBs {
-				go rCallback(f.err)
-			}
-		default:
-			// Error closed
-		}
-	}()
-}
-
 func (f *promiseImpl) Success(value interface{}) error {
-	if f.isCompleted() {
+	if f.IsCompleted() {
 		return errorCompleted
 	}
 	f.value = value
-	f.success <- struct{}{}
-	f.close()
+	close(f.completed)
+	for _, rCallback := range f.successCBs {
+		go rCallback(f.value)
+	}
 	return nil
 }
 
 func (f *promiseImpl) Error(err error) error { // TODO: error should work as Success
-	if f.isCompleted() {
+	if f.IsCompleted() {
 		return errorCompleted
 	}
 	f.err = err
-	f.error <- struct{}{}
-	f.close()
+	close(f.completed)
+	for _, rCallback := range f.errorCBs {
+		go rCallback(f.err)
+	}
 	return nil
 }
 
@@ -107,12 +86,9 @@ func (f *promiseImpl) Error(err error) error { // TODO: error should work as Suc
 
 // Get should coexist and close onsuccess
 func (f *promiseImpl) Get() (interface{}, error) {
-	select {
-	case successVal := <-f.success: // TODO: this won't work with already complete successes, use https://go101.org/article/channel-closing.html
-		return successVal, nil
-	case _ = <-f.error:
-		return nil, fmt.Errorf("TODO: CHANGE")
-	}
+	// Wait for completion
+	<-f.completed
+	return f.value, f.err
 }
 
 func (f *promiseImpl) Eventually(timeout time.Duration) (interface{}, error) {
@@ -136,11 +112,11 @@ func (f *promiseImpl) Eventually(timeout time.Duration) (interface{}, error) {
 	}
 }
 
-func (f *promiseImpl) isCompleted() bool {
-	return f.err != nil || f.value != nil
-}
-
-func (f *promiseImpl) close() {
-	close(f.success)
-	close(f.error)
+func (f *promiseImpl) IsCompleted() bool {
+	select {
+	case <-f.completed:
+		return true
+	default:
+		return false
+	}
 }

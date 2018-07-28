@@ -13,6 +13,7 @@ var errorCompleted = errors.New("this promise has been already completed")
 type Future interface {
 	OnSuccess(callback func(_ interface{}))
 	OnError(callback func(_ error))
+	OnComplete(callback func(_ interface{}, _ error))
 	IsCompleted() bool
 	Get() (interface{}, error)
 	Eventually(timeout time.Duration) (interface{}, error)
@@ -25,25 +26,42 @@ type Promise interface {
 }
 
 type promiseImpl struct {
-	completed  chan interface{}
-	successCBs []func(_ interface{})
-	errorCBs   []func(_ error)
-	value      interface{}
-	err        error
+	completed   chan interface{}
+	successCBs  []func(_ interface{})
+	errorCBs    []func(_ error)
+	completeCBs []func(_ interface{}, _ error)
+	value       interface{}
+	err         error
 }
 
 func NewPromise() Promise {
 	p := &promiseImpl{
-		completed:  make(chan interface{}),
-		successCBs: make([]func(_ interface{}), 0),
-		errorCBs:   make([]func(_ error), 0),
+		completed:   make(chan interface{}),
+		successCBs:  make([]func(_ interface{}), 0),
+		errorCBs:    make([]func(_ error), 0),
+		completeCBs: make([]func(_ interface{}, _ error), 0),
 	}
+	return p
+}
+
+func Do(asyncFunc func() (interface{}, error)) Future {
+	p := NewPromise()
+
+	go func() {
+		val, err := asyncFunc()
+		if err != nil {
+			p.Error(err)
+		} else {
+			p.Success(val)
+		}
+	}()
+
 	return p
 }
 
 // OnSuccess invokes the statusReceiver function as soon as the future is successfully completed
 func (f *promiseImpl) OnSuccess(callback func(_ interface{})) {
-	if f.value != nil {
+	if f.IsCompleted() {
 		go callback(f.value)
 		return
 	}
@@ -51,11 +69,19 @@ func (f *promiseImpl) OnSuccess(callback func(_ interface{})) {
 }
 
 func (f *promiseImpl) OnError(callback func(_ error)) {
-	if f.err != nil {
+	if f.IsCompleted() {
 		go callback(f.err)
 		return
 	}
 	f.errorCBs = append(f.errorCBs, callback)
+}
+
+func (f *promiseImpl) OnComplete(callback func(_ interface{}, _ error)) {
+	if f.IsCompleted() {
+		go callback(f.value, f.err)
+		return
+	}
+	f.completeCBs = append(f.completeCBs, callback)
 }
 
 func (f *promiseImpl) Success(value interface{}) error {
@@ -67,6 +93,13 @@ func (f *promiseImpl) Success(value interface{}) error {
 	for _, rCallback := range f.successCBs {
 		go rCallback(f.value)
 	}
+	for _, rCallback := range f.completeCBs {
+		go rCallback(f.value, nil)
+	}
+	// callbacks arrays are not needed anymore. Removing
+	f.successCBs = nil
+	f.completeCBs = nil
+	f.errorCBs = nil
 	return nil
 }
 
@@ -79,10 +112,15 @@ func (f *promiseImpl) Error(err error) error { // TODO: error should work as Suc
 	for _, rCallback := range f.errorCBs {
 		go rCallback(f.err)
 	}
+	for _, rCallback := range f.completeCBs {
+		go rCallback(nil, f.err)
+	}
+	// callbacks arrays are not needed anymore. Removing
+	f.successCBs = nil
+	f.completeCBs = nil
+	f.errorCBs = nil
 	return nil
 }
-
-// Todo: oncomplete (interface{}, error)
 
 // Get should coexist and close onsuccess
 func (f *promiseImpl) Get() (interface{}, error) {
@@ -92,23 +130,20 @@ func (f *promiseImpl) Get() (interface{}, error) {
 }
 
 func (f *promiseImpl) Eventually(timeout time.Duration) (interface{}, error) {
-	finishCh := make(chan interface{})
-	errCh := make(chan error)
-	defer close(finishCh)
-	defer close(errCh)
-	f.OnSuccess(func(val interface{}) {
-		finishCh <- val
-	})
-	f.OnError(func(err error) {
-		errCh <- err
-	})
+	gotValues := make(chan interface{})
+	defer close(gotValues)
+	var val interface{}
+	var err error
+	go func() {
+		val, err = f.Get()
+		gotValues <- struct{}{}
+	}()
+
 	select {
-	case val := <-finishCh:
-		return val, nil
-	case err := <-errCh:
-		return nil, err
+	case <-gotValues:
+		return val, err
 	case <-time.After(timeout):
-		return nil, fmt.Errorf("future did not completed after %v", timeout)
+		return nil, fmt.Errorf("future has not completed after %v", timeout)
 	}
 }
 

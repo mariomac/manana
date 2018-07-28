@@ -1,2 +1,3 @@
-# manana
-Mañana: yet another futures framework for Go
+# Mañana (WIP)
+
+Yet another futures and promises library for Go.

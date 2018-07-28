@@ -245,6 +245,220 @@ func TestFuture_Error_AfterSubscribing(t *testing.T) {
 	}))
 }
 
+func TestFuture_OnComplete_Success(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		// Given a future
+		f := NewPromise()
+
+		// When attaching two "onComplete" callbacks
+		var val1 interface{}
+		var err1 error
+		f.OnComplete(func(val interface{}, err error) {
+			val1 = val
+			err1 = err
+			wg.Done()
+		})
+		var val2 interface{}
+		var err2 error
+		f.OnComplete(func(val interface{}, err error) {
+			val2 = val
+			err2 = err
+			wg.Done()
+		})
+
+		// When the future succeeds
+		assert.NoError(t, f.Success("suceed!"))
+
+		// Both subscribers eventually receive the success
+		wg.Wait()
+		assert.Equal(t, "suceed!", val1)
+		assert.Equal(t, "suceed!", val2)
+		assert.NoError(t, err1)
+		assert.NoError(t, err2)
+	}))
+}
+
+func TestFuture_OnComplete_Success_OneBeforeOneAfterSubscribing(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		// Given a future
+		f := NewPromise()
+
+		// When attaching an "oncomplete" callback
+		var val1 interface{}
+		var err1 error
+		f.OnComplete(func(val interface{}, err error) {
+			val1 = val
+			err1 = err
+			wg.Done()
+		})
+
+		// And the future succeeds
+		assert.NoError(t, f.Success("suceed!"))
+
+		// But another "oncomplete" is subscribed after the future finishes
+		var val2 interface{}
+		var err2 error
+		f.OnComplete(func(val interface{}, err error) {
+			val2 = val
+			err2 = err
+			wg.Done()
+		})
+
+		// Both subscribers eventually receive the success
+		wg.Wait()
+		assert.Equal(t, "suceed!", val1)
+		assert.Equal(t, "suceed!", val2)
+		assert.NoError(t, err1)
+		assert.NoError(t, err2)
+	}))
+}
+
+func TestFuture_OnComplete_Success_AfterSubscribing(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+		// Given a future
+		f := NewPromise()
+
+		// When the future succeeds
+		assert.NoError(t, f.Success("suceed!"))
+
+		// And the callbacks have been subscribed after succeeding
+		var val1 interface{}
+		var err1 error
+		f.OnComplete(func(val interface{}, err error) {
+			val1 = val
+			err1 = err
+			wg.Done()
+		})
+		var val2 interface{}
+		var err2 error
+		f.OnComplete(func(val interface{}, err error) {
+			val2 = val
+			err2 = err
+			wg.Done()
+		})
+
+		// Both subscribers eventually receive the success
+		wg.Wait()
+		assert.Equal(t, "suceed!", val1)
+		assert.Equal(t, "suceed!", val2)
+		assert.NoError(t, err1)
+		assert.NoError(t, err2)
+	}))
+}
+
+func TestFuture_OnComplete_Error(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		// Given a future
+		f := NewPromise()
+
+		// When attaching two "onComplete" callbacks
+		var val1 interface{}
+		var err1 error
+		f.OnComplete(func(val interface{}, err error) {
+			val1 = val
+			err1 = err
+			wg.Done()
+		})
+		var val2 interface{}
+		var err2 error
+		f.OnComplete(func(val interface{}, err error) {
+			val2 = val
+			err2 = err
+			wg.Done()
+		})
+
+		// When the future fails with error
+		f.Error(errors.New("catapun"))
+
+		// Both subscribers eventually receive the error
+		wg.Wait()
+		assert.EqualError(t, err1, "catapun")
+		assert.EqualError(t, err2, "catapun")
+	}))
+}
+
+func TestFuture_OnComplete_Error_OneBeforeOneAfterSubscribing(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		// Given a future
+		f := NewPromise()
+
+		// that already has an "oncomplete" callbacks
+		var val1 interface{}
+		var err1 error
+		f.OnComplete(func(val interface{}, err error) {
+			val1 = val
+			err1 = err
+			wg.Done()
+		})
+
+		// When the future fails with error
+		f.Error(errors.New("catapun"))
+
+		// And a new complete callback is attached
+		var val2 interface{}
+		var err2 error
+		f.OnComplete(func(val interface{}, err error) {
+			val2 = val
+			err2 = err
+			wg.Done()
+		})
+
+		// Both subscribers eventually receive the error
+		wg.Wait()
+		assert.EqualError(t, err1, "catapun")
+		assert.EqualError(t, err2, "catapun")
+	}))
+}
+
+func TestFuture_OnComplete_Error_AfterSubscribing(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		// Given a future
+		f := NewPromise()
+
+		// That is completed with error before any callback is added
+		f.Error(errors.New("catapun"))
+
+		// And complete callbacks are added later
+		var val1 interface{}
+		var err1 error
+		f.OnComplete(func(val interface{}, err error) {
+			val1 = val
+			err1 = err
+			wg.Done()
+		})
+		var val2 interface{}
+		var err2 error
+		f.OnComplete(func(val interface{}, err error) {
+			val2 = val
+			err2 = err
+			wg.Done()
+		})
+
+		// Both subscribers eventually receive the error
+		wg.Wait()
+		assert.EqualError(t, err1, "catapun")
+		assert.EqualError(t, err2, "catapun")
+	}))
+}
+
 func TestFuture_Success_Twice(t *testing.T) {
 	assert.NoError(t, eventually(2*time.Second, func() {
 		wg := sync.WaitGroup{}
@@ -554,3 +768,199 @@ func TestFuture_Get_OnError_After(t *testing.T) {
 	}))
 }
 
+func TestFuture_Eventually_Success(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		// Given a future
+		f := NewPromise()
+
+		var val interface{}
+		var err error
+		// That synchronously waits for a success
+		go func() {
+			val, err = f.Eventually(time.Second)
+			wg.Done()
+		}()
+
+		// When the future succeeds
+		f.Success("success!")
+
+		wg.Wait()
+		// The value has been correctly obtained
+		assert.Equal(t, "success!", val)
+		assert.NoError(t, err)
+	}))
+}
+
+func TestFuture_Eventually_AfterSuccess(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		// Given a future
+		f := NewPromise()
+
+		// that succeeded
+		f.Success("success!")
+
+		var val interface{}
+		var err error
+		// When synchronously waiting for a success
+		val, err = f.Eventually(time.Second)
+
+		// The value has been correctly obtained
+		assert.Equal(t, "success!", val)
+		assert.NoError(t, err)
+	}))
+}
+
+func TestFuture_Eventually_Waiting(t *testing.T) {
+	// Given a future
+	f := NewPromise()
+
+	// When synchronously waiting for a completion with a waiting timeout
+	_, err := f.Eventually(200 * time.Millisecond)
+
+	// The Eventually function returns error if the function does not complete
+	assert.Error(t, err)
+}
+
+func TestFuture_Eventually_OnSuccess_After(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		// Given a future
+		f := NewPromise()
+
+		// That synchronously waits for a success
+		go func() {
+			f.Eventually(time.Second)
+		}()
+
+		// When the future succeeds
+		f.Success("success!")
+
+		// And success callbacks are registered
+
+		var val interface{}
+		f.OnSuccess(func(ret interface{}) {
+			val = ret
+			wg.Done()
+		})
+
+		wg.Wait()
+		// Then the success value is immediately assigned
+		assert.Equal(t, "success!", val)
+	}))
+}
+
+func TestFuture_Eventually_Error(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		// Given a future
+		f := NewPromise()
+
+		var val interface{}
+		var err error
+		// That synchronously waits for a completion
+		go func() {
+			val, err = f.Eventually(time.Second)
+			wg.Done()
+		}()
+
+		// When the future fails
+		f.Error(fmt.Errorf("pumchimpun"))
+
+		wg.Wait()
+		// The error has been received
+		assert.EqualError(t, err, "pumchimpun")
+		assert.Nil(t, val)
+	}))
+}
+
+func TestFuture_Eventually_AfterError(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		// Given a future
+		f := NewPromise()
+
+		// that fails
+		f.Error(fmt.Errorf("pumchimpun"))
+
+		var val interface{}
+		var err error
+		// When synchronously waiting for a completion
+		val, err = f.Eventually(time.Second)
+
+		// The error has been received
+		assert.EqualError(t, err, "pumchimpun")
+		assert.Nil(t, val)
+	}))
+}
+
+func TestFuture_Eventually_OnError_After(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		// Given a future
+		f := NewPromise()
+
+		// That synchronously waits for a success
+		go func() {
+			f.Get()
+		}()
+
+		// When the future fails
+		f.Error(fmt.Errorf("pumchimpun"))
+
+		// And error callbacks are registered
+		var err error
+		f.OnError(func(recv error) {
+			err = recv
+			wg.Done()
+		})
+
+		wg.Wait()
+		// The error has been received
+		assert.EqualError(t, err, "pumchimpun")
+	}))
+}
+
+func TestDo_Success(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+
+		// Given a synchronous function that succeeds
+		fn := func() (interface{}, error) {
+			return "hiya!", nil
+		}
+		// When executed asynchronously
+		fut := Do(fn)
+
+		// The success value is properly returned
+		val, err := fut.Get()
+		assert.Equal(t, "hiya!", val)
+		assert.NoError(t, err)
+	}))
+}
+
+func TestDo_Error(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+
+		// Given a synchronous function that fails
+		fn := func() (interface{}, error) {
+			return nil, fmt.Errorf("tracatran")
+		}
+		// When executed asynchronously
+		fut := Do(fn)
+
+		// The error value is properly returned
+		_, err := fut.Get()
+		assert.EqualError(t, err, "tracatran")
+	}))
+}

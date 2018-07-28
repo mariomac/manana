@@ -25,7 +25,7 @@ type Promise interface {
 
 type promiseImpl struct {
 	success    chan interface{}
-	error      chan error
+	error      chan interface{}
 	successCBs []func(_ interface{})
 	errorCBs   []func(_ error)
 	value      interface{}
@@ -35,7 +35,7 @@ type promiseImpl struct {
 func New() Promise {
 	p := &promiseImpl{
 		success:    make(chan interface{}),
-		error:      make(chan error),
+		error:      make(chan interface{}),
 		successCBs: make([]func(_ interface{}), 0),
 		errorCBs:   make([]func(_ error), 0),
 	}
@@ -62,15 +62,23 @@ func (f *promiseImpl) OnError(callback func(_ error)) {
 
 func (f *promiseImpl) initialize() {
 	go func() {
-		<-f.success // Wait for success
-		for _, rCallback := range f.successCBs {
-			go rCallback(f.value)
+		select {
+		case <-f.success: // Wait for success
+			for _, rCallback := range f.successCBs {
+				go rCallback(f.value)
+			}
+		default:
+			// Success closed
 		}
 	}()
 	go func() {
-		f.err = <-f.error // Wait for error
-		for _, rCallback := range f.errorCBs {
-			go rCallback(f.err)
+		select {
+		case <-f.error: // Wait for error
+			for _, rCallback := range f.errorCBs {
+				go rCallback(f.err)
+			}
+		default:
+			// Error closed
 		}
 	}()
 }
@@ -86,13 +94,12 @@ func (f *promiseImpl) Success(value interface{}) error {
 }
 
 func (f *promiseImpl) Error(err error) error { // TODO: error should work as Success
-	if f.err != nil || f.value != nil {
+	if f.isCompleted() {
 		return errorCompleted
 	}
-	go func() {
-		f.error <- err
-		f.close()
-	}()
+	f.err = err
+	f.error <- struct{}{}
+	f.close()
 	return nil
 }
 
@@ -103,8 +110,8 @@ func (f *promiseImpl) Get() (interface{}, error) {
 	select {
 	case successVal := <-f.success: // TODO: this won't work with already complete successes, use https://go101.org/article/channel-closing.html
 		return successVal, nil
-	case err := <-f.error:
-		return nil, err
+	case _ = <-f.error:
+		return nil, fmt.Errorf("TODO: CHANGE")
 	}
 }
 

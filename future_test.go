@@ -245,6 +245,112 @@ func TestFuture_Success_Twice(t *testing.T) {
 	}))
 }
 
+func TestFuture_Error_Twice(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		// Given a future
+		f := New()
+
+		var rcvErr error
+		f.OnError(func(err error) {
+			rcvErr = err
+			wg.Done()
+		})
+
+		// When the future fails
+		assert.NoError(t, f.Error(errors.New("catapun")))
+
+		// And try to fail a second time
+		assert.Error(t, f.Error(errors.New("catapunchinpun")))
+
+		// The subscriber eventually receives the error
+		wg.Wait()
+		assert.EqualError(t, rcvErr, "catapun")
+
+		// And the process works for future things
+		wg.Add(1)
+		var rcvErr2 error
+		f.OnError(func(err error) {
+			rcvErr2 = err
+			wg.Done()
+		})
+		wg.Wait()
+		assert.EqualError(t, rcvErr2, "catapun")
+
+	}))
+}
+
+func TestFuture_ErrorAfterSuccess(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		// Given a future
+		f := New()
+
+		var rcvErr error
+		f.OnError(func(err error) {
+			rcvErr = err
+			assert.Fail(t, "Error should never happen")
+		})
+		var val string
+		f.OnSuccess(func(obj interface{}) {
+			val = obj.(string)
+			wg.Done()
+		})
+
+		// When the future succeeds
+		assert.NoError(t, f.Success("success!"))
+
+		// And later try to fail
+		assert.Error(t, f.Error(errors.New("catapun")))
+
+		// The subscriber eventually receives the success value
+		wg.Wait()
+		assert.Equal(t, "success!", val)
+
+		// But not the error
+		assert.NoError(t, rcvErr)
+	}))
+}
+
+func TestFuture_SuccessAfterError(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		// Given a future
+		f := New()
+
+		var val string
+		f.OnSuccess(func(obj interface{}) {
+			val = obj.(string)
+			assert.Fail(t, "Success should never happen")
+		})
+
+		var rcvErr error
+		f.OnError(func(err error) {
+			rcvErr = err
+			wg.Done()
+		})
+
+		// When the future fails
+		assert.NoError(t, f.Error(errors.New("catapun")))
+
+		// And later try to succeed
+		assert.Error(t, f.Success("success!"))
+
+		// The subscriber eventually receives the error
+		wg.Wait()
+		assert.EqualError(t, rcvErr, "catapun")
+
+		// But not the success
+		assert.Equal(t, "", val)
+	}))
+}
+
 // Test get with success value
 // Test that onsuccess still works
 

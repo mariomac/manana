@@ -10,8 +10,9 @@ import (
 
 	"errors"
 
-	"github.com/stretchr/testify/assert"
 	"context"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func eventually(timeout time.Duration, f func()) error {
@@ -972,7 +973,7 @@ func TestCancel_NoCtx(t *testing.T) {
 		wg := sync.WaitGroup{}
 		wg.Add(1)
 		f := Do(func() (interface{}, error) {
-			<- time.After(5 * time.Second)
+			<-time.After(5 * time.Second)
 			return nil, nil
 		})
 		f.OnSuccess(func(_ interface{}) {
@@ -1010,7 +1011,7 @@ func TestCancel(t *testing.T) {
 				isCanceled = true
 				wg.Done()
 			}()
-			<- time.After(200 * time.Second)
+			<-time.After(200 * time.Second)
 			return nil, nil
 		})
 		f.OnSuccess(func(_ interface{}) {
@@ -1049,7 +1050,7 @@ func TestCancel_Cancelable(t *testing.T) {
 			defer func() {
 				wg.Done()
 			}()
-			<- ctx.Done()
+			<-ctx.Done()
 			return nil, nil
 		})
 		f.OnSuccess(func(_ interface{}) {
@@ -1075,6 +1076,29 @@ func TestCancel_Cancelable(t *testing.T) {
 		_, err := f.Get()
 		assert.Equal(t, ErrorCanceled, err)
 		_, err = f.Eventually(5 * time.Second) // Doesn't wait since is already canceled
+		assert.Equal(t, ErrorCanceled, err)
+	}))
+}
+
+func TestCancel_Eventually(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		// Given an long-running future
+		f := DoCtx(func(ctx context.Context) (interface{}, error) {
+			<-time.After(5 * time.Second)
+			return nil, nil
+		})
+		// And an eventually invocation
+		wait := make(chan interface{})
+		var err error
+		go func() {
+			_, err = f.Eventually(5 * time.Second)
+			wait <- 1
+		}()
+
+		// When the future is canceled
+		f.Cancel()
+		<-wait
+		// The eventually invocation received the corresponding error
 		assert.Equal(t, ErrorCanceled, err)
 	}))
 }

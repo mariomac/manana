@@ -1,17 +1,18 @@
 package manana
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
-	"context"
 )
 
+// ErrorCanceled is an error returned when trying to operate with an already canceled Future
 var ErrorCanceled = errors.New("this future has been already canceled")
+// ErrorComplete is an error returned when trying to complete and already completed Future
 var ErrorCompleted = errors.New("this promise has been already completed")
 
-// promiseImpl here should be probably named "Promise", since has a completable status
-
+// Future holds the results of an operation that runs asynchronously, in background.
 type Future interface {
 	OnSuccess(callback func(_ interface{}))
 	OnFail(callback func(_ error))
@@ -30,8 +31,8 @@ type Promise interface {
 
 type promiseImpl struct {
 	completed   chan interface{}
-	context    context.Context
-	cancel    context.CancelFunc
+	context     context.Context
+	cancel      context.CancelFunc
 	successCBs  []func(_ interface{})
 	errorCBs    []func(_ error)
 	completeCBs []func(_ interface{}, _ error)
@@ -43,8 +44,8 @@ func NewPromise() Promise {
 	ctx, cancelFunc := context.WithCancel(context.Background())
 	p := &promiseImpl{
 		completed:   make(chan interface{}),
-		context:  ctx,
-		cancel:    cancelFunc,
+		context:     ctx,
+		cancel:      cancelFunc,
 		successCBs:  make([]func(_ interface{}), 0),
 		errorCBs:    make([]func(_ error), 0),
 		completeCBs: make([]func(_ interface{}, _ error), 0),
@@ -68,9 +69,9 @@ func Do(asyncFunc func() (interface{}, error)) Future {
 		select {
 		case err := <-errCh:
 			p.Error(err)
-		case val := <- valCh:
+		case val := <-valCh:
 			p.Success(val)
-		case <- p.context.Done():
+		case <-p.context.Done():
 			// do nothing
 		}
 	}()
@@ -93,9 +94,9 @@ func DoCtx(asyncFunc func(ctx context.Context) (interface{}, error)) Future {
 		select {
 		case err := <-errCh:
 			p.Error(err)
-		case val := <- valCh:
+		case val := <-valCh:
 			p.Success(val)
-		case <- p.context.Done():
+		case <-p.context.Done():
 			// do nothing
 		}
 	}()
@@ -181,9 +182,9 @@ func (f *promiseImpl) Error(err error) error {
 func (f *promiseImpl) Get() (interface{}, error) {
 	// Wait for completion
 	select {
-	case 	<-f.completed:
+	case <-f.completed:
 		return f.value, f.err
-	case <- f.context.Done():
+	case <-f.context.Done():
 		return nil, ErrorCanceled
 	}
 }

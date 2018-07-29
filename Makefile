@@ -2,7 +2,7 @@ GOTOOLS = github.com/golang/lint/golint \
           gopkg.in/alecthomas/gometalinter.v2
 
 # Temporary patch to avoid build failing because of the outdated documentation example
-PKGS = $(shell go list ./... | egrep -v "\/examples\/")
+PKGS = $(shell go list ./... | egrep -v "\/examples")
 
 all: lint test
 

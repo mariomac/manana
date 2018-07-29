@@ -11,6 +11,7 @@ import (
 	"errors"
 
 	"github.com/stretchr/testify/assert"
+	"context"
 )
 
 func eventually(timeout time.Duration, f func()) error {
@@ -162,14 +163,14 @@ func TestFuture_Error(t *testing.T) {
 		// Given a future
 		f := NewPromise()
 
-		// When attaching two "OnError" callbacks
+		// When attaching two "OnFail" callbacks
 		var first, second error
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			first = err
 			wg.Done()
 		})
 
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			second = err
 			wg.Done()
 		})
@@ -192,9 +193,9 @@ func TestFuture_Error_OneBeforeOneAfterSubscribing(t *testing.T) {
 		// Given a future
 		f := NewPromise()
 
-		// that already has an "OnError" callbacks
+		// that already has an "OnFail" callbacks
 		var first, second error
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			first = err
 			wg.Done()
 		})
@@ -203,7 +204,7 @@ func TestFuture_Error_OneBeforeOneAfterSubscribing(t *testing.T) {
 		f.Error(errors.New("catapun"))
 
 		// And a new error callback is attached
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			second = err
 			wg.Done()
 		})
@@ -229,11 +230,11 @@ func TestFuture_Error_AfterSubscribing(t *testing.T) {
 
 		// And error callbacks are added later
 		var first, second error
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			first = err
 			wg.Done()
 		})
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			second = err
 			wg.Done()
 		})
@@ -505,7 +506,7 @@ func TestFuture_Error_Twice(t *testing.T) {
 		f := NewPromise()
 
 		var rcvErr error
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			rcvErr = err
 			wg.Done()
 		})
@@ -523,7 +524,7 @@ func TestFuture_Error_Twice(t *testing.T) {
 		// And the process works for future things
 		wg.Add(1)
 		var rcvErr2 error
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			rcvErr2 = err
 			wg.Done()
 		})
@@ -542,7 +543,7 @@ func TestFuture_ErrorAfterSuccess(t *testing.T) {
 		f := NewPromise()
 
 		var rcvErr error
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			rcvErr = err
 			assert.Fail(t, "Error should never happen")
 		})
@@ -582,7 +583,7 @@ func TestFuture_SuccessAfterError(t *testing.T) {
 		})
 
 		var rcvErr error
-		f.OnError(func(err error) {
+		f.OnFail(func(err error) {
 			rcvErr = err
 			wg.Done()
 		})
@@ -738,7 +739,7 @@ func TestFuture_Get_AfterError(t *testing.T) {
 	}))
 }
 
-func TestFuture_Get_OnError_After(t *testing.T) {
+func TestFuture_Get_OnFail_After(t *testing.T) {
 	assert.NoError(t, eventually(2*time.Second, func() {
 
 		wg := sync.WaitGroup{}
@@ -757,7 +758,7 @@ func TestFuture_Get_OnError_After(t *testing.T) {
 
 		// And error callbacks are registered
 		var err error
-		f.OnError(func(recv error) {
+		f.OnFail(func(recv error) {
 			err = recv
 			wg.Done()
 		})
@@ -902,7 +903,7 @@ func TestFuture_Eventually_AfterError(t *testing.T) {
 	}))
 }
 
-func TestFuture_Eventually_OnError_After(t *testing.T) {
+func TestFuture_Eventually_OnFail_After(t *testing.T) {
 	assert.NoError(t, eventually(2*time.Second, func() {
 
 		wg := sync.WaitGroup{}
@@ -921,7 +922,7 @@ func TestFuture_Eventually_OnError_After(t *testing.T) {
 
 		// And error callbacks are registered
 		var err error
-		f.OnError(func(recv error) {
+		f.OnFail(func(recv error) {
 			err = recv
 			wg.Done()
 		})
@@ -962,5 +963,124 @@ func TestDo_Error(t *testing.T) {
 		// The error value is properly returned
 		_, err := fut.Get()
 		assert.EqualError(t, err, "tracatran")
+	}))
+}
+
+func TestCancel_NoCtx(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+		// Given a promise that is taking too long
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		f := Do(func() (interface{}, error) {
+			<- time.After(5 * time.Second)
+			return nil, nil
+		})
+		f.OnSuccess(func(_ interface{}) {
+			assert.Fail(t, "function should never succeed!")
+		})
+		f.OnFail(func(_ error) {
+			assert.Fail(t, "function should never fail!")
+		})
+		f.OnComplete(func(_ interface{}, _ error) {
+			assert.Fail(t, "function should never complete!")
+		})
+
+		// when the promise is canceled
+		assert.NoError(t, f.Cancel())
+
+		// Then trying to use future returns ErrorCanceled
+		assert.Equal(t, ErrorCanceled, f.Cancel())
+		assert.Equal(t, ErrorCanceled, f.(*promiseImpl).Success("abc"))
+		assert.Equal(t, ErrorCanceled, f.(*promiseImpl).Error(errors.New("abcde")))
+		_, err := f.Get()
+		assert.Equal(t, ErrorCanceled, err)
+		_, err = f.Eventually(5 * time.Second)
+		assert.Equal(t, ErrorCanceled, err)
+	}))
+}
+
+func TestCancel(t *testing.T) {
+	assert.NoError(t, eventually(5*time.Second, func() {
+		// Given an uncancelable promise that is taking too long
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		isCanceled := false
+		f := Do(func() (interface{}, error) {
+			defer func() {
+				isCanceled = true
+				wg.Done()
+			}()
+			<- time.After(200 * time.Second)
+			return nil, nil
+		})
+		f.OnSuccess(func(_ interface{}) {
+			assert.Fail(t, "function should never succeed!")
+		})
+		f.OnFail(func(_ error) {
+			assert.Fail(t, "function should never fail!")
+		})
+		f.OnComplete(func(_ interface{}, _ error) {
+			assert.Fail(t, "function should never complete!")
+		})
+
+		// when the promise is canceled
+		assert.NoError(t, f.Cancel())
+
+		// Then trying to use future returns ErrorCanceled
+		assert.Equal(t, ErrorCanceled, f.Cancel())
+		assert.Equal(t, ErrorCanceled, f.(*promiseImpl).Success("abc"))
+		assert.Equal(t, ErrorCanceled, f.(*promiseImpl).Error(errors.New("abcde")))
+		_, err := f.Get()
+		assert.Equal(t, ErrorCanceled, err)
+		_, err = f.Eventually(5 * time.Second) // Doesn't wait since is already canceled
+		assert.Equal(t, ErrorCanceled, err)
+
+		// even if the running routine is not yet finished
+		assert.False(t, isCanceled)
+	}))
+}
+
+func TestCancel_Cancelable(t *testing.T) {
+	assert.NoError(t, eventually(5*time.Second, func() {
+		// Given an cancelable promise that is taking too long
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		f := DoCtx(func(ctx context.Context) (interface{}, error) {
+			defer func() {
+				wg.Done()
+			}()
+			<- ctx.Done()
+			return nil, nil
+		})
+		f.OnSuccess(func(_ interface{}) {
+			assert.Fail(t, "function should never succeed!")
+		})
+		f.OnFail(func(_ error) {
+			assert.Fail(t, "function should never fail!")
+		})
+		f.OnComplete(func(_ interface{}, _ error) {
+			assert.Fail(t, "function should never complete!")
+		})
+
+		// when the promise is canceled
+		assert.NoError(t, f.Cancel())
+
+		// then the inner goroutine ends
+		wg.Wait()
+
+		// And trying to use the future returns ErrorCanceled
+		assert.Equal(t, ErrorCanceled, f.Cancel())
+		assert.Equal(t, ErrorCanceled, f.(*promiseImpl).Success("abc"))
+		assert.Equal(t, ErrorCanceled, f.(*promiseImpl).Error(errors.New("abcde")))
+		_, err := f.Get()
+		assert.Equal(t, ErrorCanceled, err)
+		_, err = f.Eventually(5 * time.Second) // Doesn't wait since is already canceled
+		assert.Equal(t, ErrorCanceled, err)
+	}))
+}
+
+func Test_(t *testing.T) {
+	assert.NoError(t, eventually(2*time.Second, func() {
+
 	}))
 }

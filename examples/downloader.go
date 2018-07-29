@@ -13,14 +13,17 @@ import (
 	"github.com/mariomac/manana"
 )
 
+// Example of Asynchronous application where multiple files are downloaded at the same time, and the result of the
+// download is handled asynchronously
+
 func main() {
 	downloads := []struct {
 		dstFile string
 		url     string
 	}{
-		{"ubuntu18.iso", "http://releases.ubuntu.com/18.04/ubuntu-18.04.1-desktop-amd64.iso"},
+		{"ubuntu18.metalink", "http://releases.ubuntu.com/18.04/ubuntu-18.04.1-desktop-amd64.metalink"},
 		{"ubuntu18.torrent", "http://releases.ubuntu.com/18.04/ubuntu-18.04.1-desktop-amd64.iso.torrent"},
-		{"ubuntu30.iso", "http://releases.ubuntu.com/30.04/ubuntu-30.iso"},
+		{"ubuntu30.iso", "http://releases.ubuntu.com/30.04/ubuntu-30.iso"}, // We expect a 404 error here
 	}
 
 	wg := sync.WaitGroup{}
@@ -31,10 +34,13 @@ func main() {
 
 		fmt.Println("Downloading", file, "...")
 
+		// We can handle asynchronously a synchronous function
 		f := manana.Do(func() (interface{}, error) {
 			err := Download(file, durl)
 			return nil, err
 		})
+
+		// Registering success/fail callbacks for the Future
 		f.OnSuccess(func(_ interface{}) {
 			fmt.Println("File", file, "successfully downloaded")
 			wg.Done()
@@ -44,6 +50,7 @@ func main() {
 			wg.Done()
 		})
 	}
+
 	fmt.Println("Waiting to complete downloads...")
 	wg.Wait()
 }

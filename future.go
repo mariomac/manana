@@ -8,9 +8,10 @@ import (
 )
 
 // ErrorCanceled is an error returned when trying to operate with an already canceled Future
-var ErrorCanceled = errors.New("this future has been already canceled")
+var ErrorCanceled = errors.New("this future is canceled")
+
 // ErrorComplete is an error returned when trying to complete and already completed Future
-var ErrorCompleted = errors.New("this promise has been already completed")
+var ErrorCompleted = errors.New("this promise is already completed")
 
 // Future holds the results of an operation that runs asynchronously, in background.
 type Future interface {
@@ -18,6 +19,7 @@ type Future interface {
 	OnFail(callback func(_ error))
 	OnComplete(callback func(_ interface{}, _ error))
 	IsCompleted() bool
+	IsCanceled() bool
 	Get() (interface{}, error)
 	Eventually(timeout time.Duration) (interface{}, error)
 	Cancel() error
@@ -26,7 +28,7 @@ type Future interface {
 type Promise interface {
 	Future
 	Success(value interface{}) error
-	Error(err error) error
+	Fail(err error) error
 }
 
 type promiseImpl struct {
@@ -68,7 +70,7 @@ func Do(asyncFunc func() (interface{}, error)) Future {
 		}()
 		select {
 		case err := <-errCh:
-			p.Error(err)
+			p.Fail(err)
 		case val := <-valCh:
 			p.Success(val)
 		case <-p.context.Done():
@@ -93,7 +95,7 @@ func DoCtx(asyncFunc func(ctx context.Context) (interface{}, error)) Future {
 		}()
 		select {
 		case err := <-errCh:
-			p.Error(err)
+			p.Fail(err)
 		case val := <-valCh:
 			p.Success(val)
 		case <-p.context.Done():
@@ -105,11 +107,11 @@ func DoCtx(asyncFunc func(ctx context.Context) (interface{}, error)) Future {
 
 // OnSuccess invokes the statusReceiver function as soon as the future is successfully completed
 func (f *promiseImpl) OnSuccess(callback func(_ interface{})) {
-	if f.IsCompleted() {
-		go callback(f.value)
-		return
-	}
 	if !f.IsCanceled() {
+		if f.IsCompleted() {
+			go callback(f.value)
+			return
+		}
 		f.successCBs = append(f.successCBs, callback)
 	}
 }
@@ -119,27 +121,25 @@ func (f *promiseImpl) OnFail(callback func(_ error)) {
 		go callback(f.err)
 		return
 	}
-	if !f.IsCanceled() {
-		f.errorCBs = append(f.errorCBs, callback)
-	}
+	f.errorCBs = append(f.errorCBs, callback)
 }
 
 func (f *promiseImpl) OnComplete(callback func(_ interface{}, _ error)) {
-	if f.IsCompleted() {
-		go callback(f.value, f.err)
-		return
-	}
 	if !f.IsCanceled() {
+		if f.IsCompleted() {
+			go callback(f.value, f.err)
+			return
+		}
 		f.completeCBs = append(f.completeCBs, callback)
 	}
 }
 
 func (f *promiseImpl) Success(value interface{}) error {
-	if f.IsCompleted() {
-		return ErrorCompleted
-	}
 	if f.IsCanceled() {
 		return ErrorCanceled
+	}
+	if f.IsCompleted() {
+		return ErrorCompleted
 	}
 	f.value = value
 	close(f.completed)
@@ -156,12 +156,12 @@ func (f *promiseImpl) Success(value interface{}) error {
 	return nil
 }
 
-func (f *promiseImpl) Error(err error) error {
-	if f.IsCompleted() {
-		return ErrorCompleted
-	}
+func (f *promiseImpl) Fail(err error) error {
 	if f.IsCanceled() {
 		return ErrorCanceled
+	}
+	if f.IsCompleted() {
+		return ErrorCompleted
 	}
 	f.err = err
 	close(f.completed)
@@ -213,6 +213,9 @@ func (f *promiseImpl) Eventually(timeout time.Duration) (interface{}, error) {
 }
 
 func (f *promiseImpl) IsCompleted() bool {
+	if f.IsCanceled() {
+		return true
+	}
 	select {
 	case <-f.completed:
 		return true
@@ -231,9 +234,10 @@ func (f *promiseImpl) IsCanceled() bool {
 }
 
 func (f *promiseImpl) Cancel() error {
+	err := f.Fail(ErrorCanceled)
 	if f.IsCanceled() {
 		return ErrorCanceled
 	}
 	f.cancel()
-	return nil
+	return err
 }

@@ -10,8 +10,6 @@ import (
 
 	"errors"
 
-	"context"
-
 	"github.com/stretchr/testify/assert"
 )
 
@@ -824,7 +822,7 @@ func TestFuture_Eventually_Waiting(t *testing.T) {
 	_, err := f.Eventually(200 * time.Millisecond)
 
 	// The Eventually function returns error if the function does not complete
-	assert.Error(t, err)
+	assert.Equal(t, ErrorTimeout, err)
 }
 
 func TestFuture_Eventually_OnSuccess_After(t *testing.T) {
@@ -1062,13 +1060,14 @@ func TestCancel_Cancelable(t *testing.T) {
 		// Given an cancelable promise that is taking too long
 		wg := sync.WaitGroup{}
 		wg.Add(1)
-		f := DoCtx(func(ctx context.Context) (interface{}, error) {
-			defer func() {
+		f := func() Promise {
+			p := NewPromise()
+			go func() {
+				<-p.CancelCh()
 				wg.Done()
 			}()
-			<-ctx.Done()
-			return nil, nil
-		})
+			return p
+		}()
 		f.OnSuccess(func(_ interface{}) {
 			assert.Fail(t, "function should never succeed!")
 		})
@@ -1105,10 +1104,14 @@ func TestCancel_Cancelable(t *testing.T) {
 func TestCancel_Eventually(t *testing.T) {
 	assert.NoError(t, eventually(2*time.Second, func() {
 		// Given an long-running future
-		f := DoCtx(func(ctx context.Context) (interface{}, error) {
-			<-time.After(5 * time.Second)
-			return nil, nil
-		})
+		f := func() Promise {
+			p := NewPromise()
+			go func() {
+				<-time.After(5 * time.Second)
+				p.Success(1)
+			}()
+			return p
+		}()
 		// And an eventually invocation
 		wait := make(chan interface{})
 		var err error

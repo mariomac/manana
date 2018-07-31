@@ -51,3 +51,4 @@ and [see few examples](examples).
 * A `Then` continuation future
 * A Fluent API (concat function invocations)
 * More coordination functions: `Any`, `All`, `Pipe`...
+* Use atomics to enforce values thread-safety.

@@ -7,6 +7,7 @@ import "sync"
 // If the returned future succeeds, the return value is an array containing the success values of
 // all the parameter futures, in the same order as they are passed to the All function.
 // TODO: test and correct, if apply
+// todo: crear un tipo de "joinfuture" que facilite el uso de arrays y cancele en arbol
 func All(futures ...Future) Future {
 	var wg sync.WaitGroup
 	wg.Add(len(futures))

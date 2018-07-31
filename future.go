@@ -65,9 +65,9 @@ type Promise interface {
 	Success(value interface{}) error
 	// Fail completes the Promise with an error passed as argument.
 	Fail(err error) error
-	// CancelCh returns a channel that is closed when the work held in this Promise has to be
+	// CancelCtx returns a channel that is closed when the work held in this Promise has to be
 	// canceled.
-	CancelCh() <-chan struct{}
+	CancelCtx() <-chan struct{}
 }
 
 type promiseImpl struct {
@@ -110,6 +110,31 @@ func Do(syncFunc func() (interface{}, error)) Future {
 		errCh := make(chan error)
 		go func() {
 			val, err := syncFunc()
+			if err != nil {
+				errCh <- err
+			} else {
+				valCh <- val
+			}
+		}()
+		select {
+		case err := <-errCh:
+			p.Fail(err)
+		case val := <-valCh:
+			p.Success(val)
+		case <-p.context.Done():
+			// do nothing
+		}
+	}()
+	return p
+}
+
+func DoCtx(asyncFunc func(cancelCtx <-chan struct{}) (interface{}, error)) Future {
+	p := NewPromise().(*promiseImpl)
+	go func() {
+		valCh := make(chan interface{})
+		errCh := make(chan error)
+		go func() {
+			val, err := asyncFunc(p.context.Done())
 			if err != nil {
 				errCh <- err
 			} else {
@@ -231,6 +256,7 @@ func (f *promiseImpl) Eventually(timeout time.Duration) (interface{}, error) {
 	case <-f.context.Done():
 		return nil, ErrorCanceled
 	case <-time.After(timeout):
+		// todo: should we cancel?
 		return nil, ErrorTimeout
 	}
 }
@@ -265,8 +291,8 @@ func (f *promiseImpl) Cancel() error {
 	return err
 }
 
-// CancelCh returns a channel that is closed when the work held in this Promise has to be
+// CancelCtx returns a channel that is closed when the work held in this Promise has to be
 // canceled.
-func (f *promiseImpl) CancelCh() <-chan struct{} {
+func (f *promiseImpl) CancelCtx() <-chan struct{} {
 	return f.context.Done()
 }

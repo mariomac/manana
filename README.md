@@ -52,3 +52,4 @@ and [see few examples](examples).
 * A Fluent API (concat function invocations)
 * More coordination functions: `Any`, `All`, `Pipe`...
 * Use atomics to enforce values thread-safety.
+* `go generate` to provide a generics-like interface

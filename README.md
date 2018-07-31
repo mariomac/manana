@@ -47,6 +47,9 @@ can [read the API docs](https://godoc.org/github.com/mariomac/manana)
 and [see few examples](examples).
 
 ## TODO
+* Change API for a more go-ish management of status via channels.
+    - Don't do a OOP-like API but something that just saves us some
+      repetitive work with channels.
 * An API to query the progress of the future
 * A `Then` continuation future
 * A Fluent API (concat function invocations)

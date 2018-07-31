@@ -1,3 +1,5 @@
+// package manana provides wrapper functionalities to work with futures and promises, and tools to
+// easy porting your old synchronous code to asynchronous.
 package manana
 
 import (
